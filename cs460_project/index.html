@@ -1,0 +1,398 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Parallax Image Layers</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: Arial, sans-serif;
+      background: linear-gradient(135deg, #fff5f5 0%, #ffe4f0 100%);
+      overflow: hidden;
+    }
+
+    #canvas-container {
+      width: 100vw;
+      height: 100vh;
+    }
+
+    #controls {
+      position: absolute;
+      top: 20px;
+      left: 20px;
+      background: white;
+      padding: 15px;
+      border-radius: 8px;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+      max-width: 300px;
+      max-height: 80vh;
+      overflow-y: auto;
+    }
+
+    h2 {
+      margin-bottom: 10px;
+      font-size: 18px;
+      color: #ec4899;
+    }
+
+    button {
+      width: 100%;
+      padding: 8px;
+      background: #ec4899;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 14px;
+      margin-bottom: 15px;
+    }
+
+    button:hover {
+      background: #db2777;
+    }
+
+    .layer-card {
+      border: 1px solid #fbcfe8;
+      border-radius: 6px;
+      padding: 10px;
+      margin-bottom: 10px;
+      background: #fef3f8;
+    }
+
+    .layer-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 8px;
+    }
+
+    .layer-title {
+      font-weight: bold;
+      font-size: 14px;
+      color: #be185d;
+    }
+
+    .remove-btn {
+      background: #d32f2f;
+      padding: 4px 8px;
+      font-size: 11px;
+      margin: 0;
+      width: auto;
+    }
+
+    .remove-btn:hover {
+      background: #b71c1c;
+    }
+
+    input[type="file"] {
+      width: 100%;
+      font-size: 11px;
+      margin-bottom: 8px;
+      padding: 4px;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+    }
+
+    .preview-img {
+      width: 100%;
+      height: 50px;
+      object-fit: contain;
+      background: white;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      margin-bottom: 8px;
+    }
+
+    .slider-group {
+      margin-bottom: 6px;
+    }
+
+    .slider-label {
+      font-size: 11px;
+      color: #666;
+      display: block;
+      margin-bottom: 3px;
+    }
+
+    input[type="range"] {
+      width: 100%;
+      margin-bottom: 4px;
+    }
+
+    .empty-state {
+      text-align: center;
+      color: #999;
+      font-size: 12px;
+      margin-top: 10px;
+    }
+  </style>
+</head>
+<body>
+  <div id="canvas-container"></div>
+  
+  <div id="controls">
+    <h2>Layer Controls</h2>
+    
+    <button id="add-layer-btn">Add Layer</button>
+    
+    <div id="layers-container"></div>
+    
+    <div id="empty-state" class="empty-state">
+      Click "Add Layer" to get started
+    </div>
+  </div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <script src="demo_loader.js"></script>
+  <script>
+    let layers = [];
+    let scene, camera, renderer, layersGroup;
+    let mouse = { x: 0, y: 0 };
+    let layerMeshes = {};
+
+    function initScene() {
+      const container = document.getElementById('canvas-container');
+      
+      scene = new THREE.Scene();
+      scene.background = new THREE.Color(0xfff0f5);
+
+      camera = new THREE.PerspectiveCamera(
+        45,
+        window.innerWidth / window.innerHeight,
+        0.1,
+        1000
+      );
+      camera.position.z = 10;
+
+      renderer = new THREE.WebGLRenderer({ antialias: true });
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      container.appendChild(renderer.domElement);
+
+      const ambientLight = new THREE.AmbientLight(0xffffff, 1);
+      scene.add(ambientLight);
+
+      layersGroup = new THREE.Group();
+      scene.add(layersGroup);
+
+      container.addEventListener('mousemove', onMouseMove);
+      window.addEventListener('resize', onWindowResize);
+
+      animate();
+    }
+
+    function onMouseMove(event) {
+      mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+      mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+    }
+
+    function onWindowResize() {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    }
+
+    function animate() {
+      requestAnimationFrame(animate);
+
+      Object.values(layerMeshes).forEach(meshData => {
+        const mesh = meshData.mesh;
+        const speed = meshData.speed;
+        
+        const targetX = mouse.x * speed * 5;
+        const targetY = mouse.y * speed * 5;
+        
+        mesh.position.x += (targetX - mesh.position.x) * 0.1;
+        mesh.position.y += (targetY - mesh.position.y) * 0.1;
+      });
+
+      renderer.render(scene, camera);
+    }
+
+    function addLayer() {
+      const layer = {
+        id: Date.now(),
+        imageUrl: null,
+        depth: layers.length * 0.5,
+        parallaxSpeed: 0.05 + layers.length * 0.01,
+        scale: 2
+      };
+      
+      layers.push(layer);
+      renderLayerControls();
+      updateEmptyState();
+    }
+
+    function removeLayer(layerId) {
+      layers = layers.filter(l => l.id !== layerId);
+      
+      if (layerMeshes[layerId]) {
+        const meshData = layerMeshes[layerId];
+        layersGroup.remove(meshData.mesh);
+        if (meshData.mesh.geometry) meshData.mesh.geometry.dispose();
+        if (meshData.mesh.material) {
+          if (meshData.mesh.material.map) meshData.mesh.material.map.dispose();
+          meshData.mesh.material.dispose();
+        }
+        delete layerMeshes[layerId];
+      }
+      
+      renderLayerControls();
+      updateEmptyState();
+    }
+
+    function handleImageUpload(layerId, file) {
+      if (!file) return;
+
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const layer = layers.find(l => l.id === layerId);
+        if (layer) {
+          layer.imageUrl = e.target.result;
+          updateLayerMesh(layer);
+          renderLayerControls();
+        }
+      };
+      reader.readAsDataURL(file);
+    }
+
+    function updateLayerMesh(layer) {
+      if (layerMeshes[layer.id]) {
+        const oldMeshData = layerMeshes[layer.id];
+        layersGroup.remove(oldMeshData.mesh);
+        if (oldMeshData.mesh.geometry) oldMeshData.mesh.geometry.dispose();
+        if (oldMeshData.mesh.material) {
+          if (oldMeshData.mesh.material.map) oldMeshData.mesh.material.map.dispose();
+          oldMeshData.mesh.material.dispose();
+        }
+        delete layerMeshes[layer.id];
+      }
+
+      if (layer.imageUrl) {
+        const textureLoader = new THREE.TextureLoader();
+        textureLoader.load(layer.imageUrl, (texture) => {
+          const aspect = texture.image.width / texture.image.height;
+          const geometry = new THREE.PlaneGeometry(layer.scale * aspect, layer.scale);
+          const material = new THREE.MeshBasicMaterial({
+            map: texture,
+            transparent: true,
+            side: THREE.DoubleSide
+          });
+
+          const mesh = new THREE.Mesh(geometry, material);
+          mesh.position.z = -layer.depth;
+
+          layersGroup.add(mesh);
+          layerMeshes[layer.id] = {
+            mesh: mesh,
+            speed: layer.parallaxSpeed
+          };
+        });
+      }
+    }
+
+    function updateLayerProperty(layerId, property, value) {
+      const layer = layers.find(l => l.id === layerId);
+      if (layer) {
+        layer[property] = parseFloat(value);
+        
+        if (layerMeshes[layerId]) {
+          const meshData = layerMeshes[layerId];
+          if (property === 'depth') {
+            meshData.mesh.position.z = -layer.depth;
+          } else if (property === 'parallaxSpeed') {
+            meshData.speed = layer.parallaxSpeed;
+          } else if (property === 'scale') {
+            updateLayerMesh(layer);
+          }
+        }
+        
+        renderLayerControls();
+      }
+    }
+
+    function renderLayerControls() {
+      const container = document.getElementById('layers-container');
+      container.innerHTML = '';
+
+      layers.forEach((layer, index) => {
+        const card = document.createElement('div');
+        card.className = 'layer-card';
+        
+        var imageHtml = layer.imageUrl ? '<img src="' + layer.imageUrl + '" class="preview-img">' : '';
+        
+        card.innerHTML = 
+          '<div class="layer-header">' +
+            '<span class="layer-title">Layer ' + (index + 1) + '</span>' +
+            '<button class="remove-btn" data-layer-id="' + layer.id + '">Remove</button>' +
+          '</div>' +
+          '<input type="file" accept="image/*" data-layer-id="' + layer.id + '" class="image-upload">' +
+          imageHtml +
+          '<div class="slider-group">' +
+            '<label class="slider-label">Depth: ' + layer.depth.toFixed(1) + '</label>' +
+            '<input type="range" min="-3" max="5" step="0.1" value="' + layer.depth + '" data-layer-id="' + layer.id + '" data-property="depth" class="property-slider">' +
+          '</div>' +
+          '<div class="slider-group">' +
+            '<label class="slider-label">Parallax Speed: ' + layer.parallaxSpeed.toFixed(2) + '</label>' +
+            '<input type="range" min="0" max="0.2" step="0.01" value="' + layer.parallaxSpeed + '" data-layer-id="' + layer.id + '" data-property="parallaxSpeed" class="property-slider">' +
+          '</div>' +
+          '<div class="slider-group">' +
+            '<label class="slider-label">Scale: ' + layer.scale.toFixed(1) + '</label>' +
+            '<input type="range" min="0.5" max="5" step="0.1" value="' + layer.scale + '" data-layer-id="' + layer.id + '" data-property="scale" class="property-slider">' +
+          '</div>';
+        
+        container.appendChild(card);
+      });
+
+      document.querySelectorAll('.remove-btn').forEach(btn => {
+        btn.addEventListener('click', function() {
+          removeLayer(parseInt(this.getAttribute('data-layer-id')));
+        });
+      });
+
+      document.querySelectorAll('.image-upload').forEach(input => {
+        input.addEventListener('change', function() {
+          handleImageUpload(parseInt(this.getAttribute('data-layer-id')), this.files[0]);
+        });
+      });
+
+      document.querySelectorAll('.property-slider').forEach(slider => {
+        slider.addEventListener('input', function() {
+          updateLayerProperty(
+            parseInt(this.getAttribute('data-layer-id')),
+            this.getAttribute('data-property'),
+            this.value
+          );
+        });
+      });
+    }
+
+    function updateEmptyState() {
+      const emptyState = document.getElementById('empty-state');
+      emptyState.style.display = layers.length === 0 ? 'block' : 'none';
+    }
+
+    // Function to load demo - called from demo_loader.js
+    function loadDemo(demoLayers) {
+      layers = demoLayers;
+      layers.forEach(layer => {
+        updateLayerMesh(layer);
+      });
+      renderLayerControls();
+      updateEmptyState();
+    }
+
+    document.getElementById('add-layer-btn').addEventListener('click', addLayer);
+
+    window.addEventListener('load', () => {
+      initScene();
+      updateEmptyState();
+    });
+  </script>
+</body>
+</html>
